@@ -1,0 +1,47 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files (can opt-in for committing if needed)
+.env*
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+cat << 'EOF' > .env.local
+NEXT_PUBLIC_SUPABASE_URL="https://supabase.com/dashboard/project/bhtqulxjdgylskeffpoi"
+NEXT_PUBLIC_SUPABASE_ANON_KEY= "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJodHF1bHhqZGd5bHNrZWZmcG9pIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ4NTA4MjYsImV4cCI6MjExMDQyNjgyNn0.KFRNMo-S_IBYQr_n8KryH-Mn9mJz5CwZ7QeQvnIj84g"
+SUPABASE_SERVICE_ROLE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJodHF1bHhqZGd5bHNrZWZmcG9pIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc5NDg1MDgyNiwiZXhwIjoyMTEwNDI2ODI2fQ.iZKrubiZBlRFeeUzvF-Va65FLoLpsrOCq0FcTwoItJM"
+EOF
