@@ -1,415 +1,193 @@
-'use client';
+import Link from 'next/link';
+import {
+  Heart,
+  Sparkles,
+  Mic,
+  Lock,
+  Camera,
+  Check,
+  ArrowRight,
+  Music,
+} from 'lucide-react';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { Heart, ImagePlus, Sparkles, Check, Lock } from 'lucide-react';
-import { createClient } from '@/lib/supabase/client';
-import { NATIVE_TRACKS } from '@/lib/tracks';
-import { CopilotChat } from '@/components/CopilotChat';
-import { VoiceRecorder } from '@/components/VoiceRecorder';
-import { MobilePreview } from '@/components/MobilePreview';
-
-export default function CriarDeclaracaoPage() {
-  const router = useRouter();
-  const supabase = createClient();
-
-  // Dados básicos
-  const [coupleNames, setCoupleNames] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [letterContent, setLetterContent] = useState('');
-  const [creatorContact, setCreatorContact] = useState('');
-
-  // Mídia e Trilha
-  const [photoFiles, setPhotoFiles] = useState<File[]>([]);
-  const [photoPreviews, setPhotoPreviews] = useState<string[]>([]);
-  const [selectedTrackId, setSelectedTrackId] = useState(NATIVE_TRACKS[0].id);
-  const [voiceBlob, setVoiceBlob] = useState<Blob | null>(null);
-
-  // Gamificação (Plano Completo)
-  const [quizQuestion, setQuizQuestion] = useState('');
-  const [quizOptions, setQuizOptions] = useState(['', '', '']);
-  const [correctIndex, setCorrectIndex] = useState(0);
-  const [timeCapsuleMsg, setTimeCapsuleMsg] = useState('');
-  const [timeCapsuleDate, setTimeCapsuleDate] = useState('');
-
-  // Plano Escalonado e Estado de Submissão
-  const [plan, setPlan] = useState<'basic' | 'complete'>('complete');
-  const [isSaving, setIsSaving] = useState(false);
-
-  const maxPhotos = plan === 'basic' ? 5 : 15;
-
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files) return;
-    const filesArray = Array.from(e.target.files).slice(0, maxPhotos - photoFiles.length);
-    setPhotoFiles((prev) => [...prev, ...filesArray]);
-
-    const newUrls = filesArray.map((file) => URL.createObjectURL(file));
-    setPhotoPreviews((prev) => [...prev, ...newUrls]);
-  };
-
-  const generateSlug = (names: string) => {
-    const clean = names
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/(^-|-$)/g, '');
-    const randomSuffix = Math.random().toString(36).substring(2, 6);
-    return `${clean || 'nosso-amor'}-${randomSuffix}`;
-  };
-
-  const handleSaveAndCheckout = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!coupleNames.trim() || !letterContent.trim()) {
-      alert('Preencha o nome do casal e o texto da carta antes de continuar.');
-      return;
-    }
-
-    setIsSaving(true);
-
-    try {
-      const slug = generateSlug(coupleNames);
-      let voiceNoteUrl: string | null = null;
-
-      // 1. Upload do áudio narrado (se plano completo e gravado)
-      if (plan === 'complete' && voiceBlob) {
-        const audioPath = `${slug}/voice-${Date.now()}.webm`;
-        const { error: audioErr } = await supabase.storage
-          .from('declaration-media')
-          .upload(audioPath, voiceBlob, { contentType: 'audio/webm' });
-
-        if (!audioErr) {
-          const { data } = supabase.storage.from('declaration-media').getPublicUrl(audioPath);
-          voiceNoteUrl = data.publicUrl;
-        }
-      }
-
-      // 2. Inserir registro principal da declaração como 'pending_payment'
-      const { data: declaration, error: declErr } = await supabase
-        .from('declarations')
-        .insert({
-          slug,
-          plan,
-          status: 'pending_payment',
-          couple_names: coupleNames,
-          relationship_start_date: startDate ? new Date(startDate).toISOString() : null,
-          letter_content: letterContent,
-          native_track_id: selectedTrackId,
-          voice_note_url: voiceNoteUrl,
-          time_capsule_message: plan === 'complete' ? timeCapsuleMsg || null : null,
-          time_capsule_unlock_date:
-            plan === 'complete' && timeCapsuleDate ? new Date(timeCapsuleDate).toISOString() : null,
-          creator_contact: creatorContact || null,
-        })
-        .select('id, slug')
-        .single();
-
-      if (declErr || !declaration) throw declErr;
-
-      // 3. Upload e registro das fotos
-      for (let i = 0; i < photoFiles.length; i++) {
-        const file = photoFiles[i];
-        const filePath = `${slug}/photo-${i}-${Date.now()}`;
-        const { error: upErr } = await supabase.storage
-          .from('declaration-media')
-          .upload(filePath, file);
-
-        if (!upErr) {
-          const { data } = supabase.storage.from('declaration-media').getPublicUrl(filePath);
-          await supabase.from('declaration_photos').insert({
-            declaration_id: declaration.id,
-            image_url: data.publicUrl,
-            display_order: i,
-          });
-        }
-      }
-
-      // 4. Salvar Quiz interativo (se plano completo e preenchido)
-      if (plan === 'complete' && quizQuestion.trim() && quizOptions.every((o) => o.trim())) {
-        await supabase.from('declaration_quizzes').insert({
-          declaration_id: declaration.id,
-          question: quizQuestion,
-          options: quizOptions,
-          correct_option_index: correctIndex,
-          display_order: 0,
-        });
-      }
-
-      // Redireciona para o checkout Pix com o ID da declaração
-      router.push(`/checkout/${declaration.id}`);
-    } catch (err) {
-      console.error('Erro ao salvar declaração:', err);
-      alert('Ocorreu um erro ao salvar sua declaração. Verifique sua conexão e tente novamente.');
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
+export default function HomePage() {
   return (
-    <div className="min-h-screen bg-gray-50 py-10 px-4">
-      <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Coluna Esquerda: Formulário Interativo */}
-        <form onSubmit={handleSaveAndCheckout} className="lg:col-span-7 space-y-6">
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-4">
-            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-              <Heart className="w-6 h-6 text-rose-600 fill-rose-600" />
-              Crie sua Declaração Interativa
-            </h1>
-            <p className="text-sm text-gray-500">
-              Monte tudo gratuitamente e veja como vai ficar no celular ao lado. Você só paga no final para liberar o link.
-            </p>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Nome do Casal *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ex: Daniel & Ana"
-                  value={coupleNames}
-                  onChange={(e) => setCoupleNames(e.target.value)}
-                  className="w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-rose-500 outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Início do Relacionamento
-                </label>
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-rose-500 outline-none"
-                />
-              </div>
-            </div>
+    <div className="min-h-screen bg-gray-950 text-white selection:bg-rose-600 selection:text-white">
+      {/* Navbar */}
+      <header className="border-b border-white/10 backdrop-blur-md sticky top-0 z-50 bg-gray-950/80">
+        <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-2 font-extrabold text-lg tracking-tight">
+            <Heart className="w-5 h-5 text-rose-500 fill-rose-500" />
+            <span>NossoMomento</span>
           </div>
-
-          {/* Bloco 2: Copiloto IA + Carta */}
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-4">
-            <h2 className="text-base font-bold text-gray-900">1. A Carta de Amor</h2>
-            <CopilotChat
-              coupleNames={coupleNames}
-              onLetterGenerated={(generated) => setLetterContent(generated)}
-            />
-
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1">
-                Texto da Carta (edite livremente) *
-              </label>
-              <textarea
-                rows={6}
-                required
-                value={letterContent}
-                onChange={(e) => setLetterContent(e.target.value)}
-                placeholder="Converse com o Copiloto acima para gerar uma carta sem clichês ou escreva aqui..."
-                className="w-full p-3 text-sm border rounded-xl focus:ring-2 focus:ring-rose-500 outline-none"
-              />
-            </div>
-          </div>
-
-          {/* Bloco 3: Fotos, Trilha Sonora e Voz */}
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-4">
-            <h2 className="text-base font-bold text-gray-900">2. Fotos, Trilha Sonora & Voz</h2>
-
-            {/* Upload de Fotos */}
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-2">
-                Fotos do Casal ({photoFiles.length}/{maxPhotos})
-              </label>
-              <label className="flex items-center justify-center gap-2 border-2 border-dashed border-gray-300 rounded-xl p-4 cursor-pointer hover:border-rose-400 transition text-sm text-gray-600">
-                <ImagePlus className="w-5 h-5 text-rose-500" />
-                <span>Adicionar fotos da galeria</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  onChange={handlePhotoUpload}
-                  className="hidden"
-                />
-              </label>
-            </div>
-
-            {/* Trilha Sonora Nativa */}
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1">
-                Trilha Sonora de Fundo (sem anúncios)
-              </label>
-              <select
-                value={selectedTrackId}
-                onChange={(e) => setSelectedTrackId(e.target.value)}
-                className="w-full px-3 py-2 text-sm border rounded-lg bg-white"
-              >
-                {NATIVE_TRACKS.map((track) => (
-                  <option key={track.id} value={track.id}>
-                    {track.title} — ({track.vibe})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Gravador de Voz */}
-            <VoiceRecorder onAudioReady={(blob) => setVoiceBlob(blob)} />
-          </div>
-
-          {/* Bloco 4: Gamificação (Quiz + Cápsula do Tempo) */}
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-base font-bold text-gray-900 flex items-center gap-1.5">
-                <Sparkles className="w-4 h-4 text-amber-500" /> 3. Gamificação & Surpresas
-              </h2>
-              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
-                Exclusivo Plano Completo
-              </span>
-            </div>
-
-            <div className="space-y-3">
-              <label className="block text-xs font-semibold text-gray-700">
-                Pergunta de Desbloqueio (Quiz para abrir a carta)
-              </label>
-              <input
-                type="text"
-                placeholder="Ex: Onde foi o nosso primeiro beijo?"
-                value={quizQuestion}
-                onChange={(e) => setQuizQuestion(e.target.value)}
-                className="w-full px-3 py-2 text-sm border rounded-lg"
-              />
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                {quizOptions.map((opt, idx) => (
-                  <div key={idx} className="flex items-center gap-1.5">
-                    <input
-                      type="radio"
-                      name="correctOption"
-                      checked={correctIndex === idx}
-                      onChange={() => setCorrectIndex(idx)}
-                      title="Marcar como resposta certa"
-                    />
-                    <input
-                      type="text"
-                      placeholder={`Opção ${idx + 1}`}
-                      value={opt}
-                      onChange={(e) => {
-                        const copy = [...quizOptions];
-                        copy[idx] = e.target.value;
-                        setQuizOptions(copy);
-                      }}
-                      className="w-full px-2.5 py-1.5 text-xs border rounded-lg"
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="pt-2 border-t space-y-2">
-              <label className="block text-xs font-semibold text-gray-700">
-                Cápsula do Tempo (Mensagem secreta bloqueada por data)
-              </label>
-              <input
-                type="date"
-                value={timeCapsuleDate}
-                onChange={(e) => setTimeCapsuleDate(e.target.value)}
-                className="w-full sm:w-1/2 px-3 py-1.5 text-xs border rounded-lg"
-              />
-              <textarea
-                rows={2}
-                placeholder="Escreva algo que só poderá ser lido na data acima..."
-                value={timeCapsuleMsg}
-                onChange={(e) => setTimeCapsuleMsg(e.target.value)}
-                className="w-full p-2.5 text-xs border rounded-lg"
-              />
-            </div>
-          </div>
-
-          {/* Bloco 5: Seletor de Plano Escalonado e Notificação */}
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-4">
-            <h2 className="text-base font-bold text-gray-900">4. Escolha seu Plano & Notificação</h2>
-
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1">
-                Seu E-mail ou WhatsApp (para avisarmos quando a página for aberta)
-              </label>
-              <input
-                type="text"
-                placeholder="Ex: seuemail@gmail.com ou (31) 99999-9999"
-                value={creatorContact}
-                onChange={(e) => setCreatorContact(e.target.value)}
-                className="w-full px-3 py-2 text-sm border rounded-lg"
-              />
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-              {/* Plano Básico */}
-              <div
-                onClick={() => setPlan('basic')}
-                className={`p-4 rounded-xl border-2 cursor-pointer transition ${
-                  plan === 'basic' ? 'border-rose-600 bg-rose-50/40' : 'border-gray-200'
-                }`}
-              >
-                <div className="flex justify-between items-center mb-1">
-                  <span className="font-bold text-gray-900">Plano Básico</span>
-                  <span className="font-extrabold text-rose-600">R$ 19,90</span>
-                </div>
-                <ul className="text-xs text-gray-600 space-y-1 mt-2">
-                  <li className="flex items-center gap-1"><Check className="w-3.5 h-3.5 text-emerald-600" /> Até 5 fotos</li>
-                  <li className="flex items-center gap-1"><Check className="w-3.5 h-3.5 text-emerald-600" /> Trilha sonora nativa</li>
-                  <li className="flex items-center gap-1"><Check className="w-3.5 h-3.5 text-emerald-600" /> Link ativo por 1 ano</li>
-                </ul>
-              </div>
-
-              {/* Plano Completo */}
-              <div
-                onClick={() => setPlan('complete')}
-                className={`p-4 rounded-xl border-2 cursor-pointer transition relative ${
-                  plan === 'complete' ? 'border-rose-600 bg-rose-50/40' : 'border-gray-200'
-                }`}
-              >
-                <span className="absolute -top-2.5 right-3 bg-rose-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
-                  MAIS ESCOLHIDO
-                </span>
-                <div className="flex justify-between items-center mb-1">
-                  <span className="font-bold text-gray-900">Completo Vitalício</span>
-                  <span className="font-extrabold text-rose-600">R$ 34,90</span>
-                </div>
-                <ul className="text-xs text-gray-600 space-y-1 mt-2">
-                  <li className="flex items-center gap-1"><Check className="w-3.5 h-3.5 text-emerald-600" /> Até 15 fotos + Link Vitalício</li>
-                  <li className="flex items-center gap-1"><Check className="w-3.5 h-3.5 text-emerald-600" /> Mensagem de Voz Narrada</li>
-                  <li className="flex items-center gap-1"><Check className="w-3.5 h-3.5 text-emerald-600" /> Quiz Interativo + Cápsula do Tempo</li>
-                  <li className="flex items-center gap-1"><Check className="w-3.5 h-3.5 text-emerald-600" /> Captura de Reação + Notificação</li>
-                </ul>
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={isSaving}
-              className="w-full py-3.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl shadow-lg shadow-rose-200 transition flex items-center justify-center gap-2 disabled:opacity-60"
-            >
-              <Lock className="w-4 h-4" />
-              {isSaving
-                ? 'Preparando sua página...'
-                : `Gerar Link Definitivo (${plan === 'basic' ? 'R$ 19,90' : 'R$ 34,90'})`}
-            </button>
-          </div>
-        </form>
-
-        {/* Coluna Direita: Preview Interativo */}
-        <div className="lg:col-span-5">
-          <MobilePreview
-            coupleNames={coupleNames}
-            startDate={startDate}
-            letterContent={letterContent}
-            photos={photoPreviews}
-            selectedTrackId={selectedTrackId}
-            hasVoiceNote={Boolean(voiceBlob)}
-            quizQuestion={quizQuestion}
-            plan={plan}
-          />
+          <Link
+            href="/criar"
+            className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-xs font-bold rounded-full transition"
+          >
+            Criar Agora Grátis
+          </Link>
         </div>
-      </div>
+      </header>
+
+      {/* Hero Section */}
+      <section className="max-w-4xl mx-auto px-4 pt-16 pb-20 text-center space-y-6">
+        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-semibold">
+          <Sparkles className="w-3.5 h-3.5" /> Muito além de um link com fotos
+        </div>
+
+        <h1 className="text-4xl sm:text-6xl font-extrabold tracking-tight leading-tight">
+          Crie uma declaração de amor{' '}
+          <span className="text-transparent bg-clip-text bg-gradient-to-r from-rose-400 to-amber-300">
+            interativa e inesquecível
+          </span>
+        </h1>
+
+        <p className="text-base sm:text-lg text-gray-300 max-w-2xl mx-auto leading-relaxed">
+          Nossa IA entrevista você para escrever uma carta sem clichês, sincroniza sua voz com a
+          trilha sonora e cria um desafio secreto para quem você ama desbloquear.
+        </p>
+
+        <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-3">
+          <Link
+            href="/criar"
+            className="w-full sm:w-auto px-8 py-4 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-2xl shadow-xl shadow-rose-600/30 transition flex items-center justify-center gap-2 text-base"
+          >
+            Montar Minha Página Agora <ArrowRight className="w-5 h-5" />
+          </Link>
+        </div>
+        <p className="text-xs text-gray-400">
+          Monte tudo e veja o preview no celular gratuitamente. Pague apenas para gerar o link final.
+        </p>
+      </section>
+
+      {/* Diferenciais */}
+      <section className="max-w-5xl mx-auto px-4 py-16 border-t border-white/10">
+        <div className="text-center mb-12 space-y-2">
+          <h2 className="text-2xl sm:text-3xl font-bold">Por que essa página emociona de verdade?</h2>
+          <p className="text-sm text-gray-400">Recursos exclusivos pensados para surpreender no celular</p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+          <div className="bg-white/5 border border-white/10 p-5 rounded-2xl space-y-3">
+            <Sparkles className="w-6 h-6 text-purple-400" />
+            <h3 className="font-bold text-base">Copiloto Entrevistador</h3>
+            <p className="text-xs text-gray-300 leading-relaxed">
+              Travou na hora de escrever? Responda 4 perguntas rápidas sobre vocês e a IA cria uma
+              carta única com as suas memórias reais.
+            </p>
+          </div>
+
+          <div className="bg-white/5 border border-white/10 p-5 rounded-2xl space-y-3">
+            <Mic className="w-6 h-6 text-rose-400" />
+            <h3 className="font-bold text-base">Sua Voz + Trilha Sonora</h3>
+            <p className="text-xs text-gray-300 leading-relaxed">
+              Grave uma mensagem de voz direto pelo navegador. Quando ela toca, a música de fundo
+              abaixa suavemente como no cinema.
+            </p>
+          </div>
+
+          <div className="bg-white/5 border border-white/10 p-5 rounded-2xl space-y-3">
+            <Lock className="w-6 h-6 text-amber-400" />
+            <h3 className="font-bold text-base">Quiz & Cápsula do Tempo</h3>
+            <p className="text-xs text-gray-300 leading-relaxed">
+              Tranque a carta com uma pergunta sobre o casal e deixe uma mensagem secreta que só abre
+              no próximo aniversário.
+            </p>
+          </div>
+
+          <div className="bg-white/5 border border-white/10 p-5 rounded-2xl space-y-3">
+            <Camera className="w-6 h-6 text-emerald-400" />
+            <h3 className="font-bold text-base">Captura de Reação</h3>
+            <p className="text-xs text-gray-300 leading-relaxed">
+              Receba um aviso no instante em que a página for aberta e guarde uma selfie da reação de
+              quem recebeu.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* Planos */}
+      <section className="max-w-4xl mx-auto px-4 py-16 border-t border-white/10">
+        <div className="text-center mb-10 space-y-2">
+          <h2 className="text-2xl sm:text-3xl font-bold">Escolha a experiência ideal</h2>
+          <p className="text-sm text-gray-400">Pagamento único via Pix. Liberação instantânea.</p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Básico */}
+          <div className="bg-white/5 border border-white/10 rounded-3xl p-7 flex flex-col justify-between space-y-6">
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <h3 className="text-lg font-bold">Plano Básico</h3>
+                <span className="text-2xl font-extrabold text-white">R$ 19,90</span>
+              </div>
+              <ul className="space-y-2.5 text-sm text-gray-300">
+                <li className="flex items-center gap-2">
+                  <Check className="w-4 h-4 text-emerald-400" /> Carta gerada com Copiloto IA
+                </li>
+                <li className="flex items-center gap-2">
+                  <Check className="w-4 h-4 text-emerald-400" /> Até 5 fotos do casal
+                </li>
+                <li className="flex items-center gap-2">
+                  <Music className="w-4 h-4 text-emerald-400" /> Trilha sonora nativa sem anúncios
+                </li>
+                <li className="flex items-center gap-2">
+                  <Check className="w-4 h-4 text-emerald-400" /> Link exclusivo válido por 1 ano
+                </li>
+              </ul>
+            </div>
+
+            <Link
+              href="/criar"
+              className="w-full py-3 rounded-xl border border-white/20 hover:bg-white/10 text-center text-sm font-bold transition"
+            >
+              Começar com Básico
+            </Link>
+          </div>
+
+          {/* Completo */}
+          <div className="bg-gradient-to-b from-rose-950/60 to-white/5 border-2 border-rose-500 rounded-3xl p-7 flex flex-col justify-between space-y-6 relative">
+            <span className="absolute -top-3 right-6 bg-rose-600 text-white text-[11px] font-bold px-3 py-0.5 rounded-full">
+              MAIS ESCOLHIDO
+            </span>
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <h3 className="text-lg font-bold">Completo Vitalício</h3>
+                <span className="text-2xl font-extrabold text-rose-400">R$ 34,90</span>
+              </div>
+              <ul className="space-y-2.5 text-sm text-gray-200">
+                <li className="flex items-center gap-2">
+                  <Check className="w-4 h-4 text-rose-400" /> Até 15 fotos + <strong>Acesso Vitalício</strong>
+                </li>
+                <li className="flex items-center gap-2">
+                  <Check className="w-4 h-4 text-rose-400" /> Mensagem de Voz com efeito cinema
+                </li>
+                <li className="flex items-center gap-2">
+                  <Check className="w-4 h-4 text-rose-400" /> Quiz Interativo de desbloqueio
+                </li>
+                <li className="flex items-center gap-2">
+                  <Check className="w-4 h-4 text-rose-400" /> Cápsula do Tempo programada
+                </li>
+                <li className="flex items-center gap-2">
+                  <Check className="w-4 h-4 text-rose-400" /> Aviso de abertura + Selfie de reação
+                </li>
+              </ul>
+            </div>
+
+            <Link
+              href="/criar"
+              className="w-full py-3.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-center text-sm font-bold shadow-lg shadow-rose-600/30 transition"
+            >
+              Criar Página Completa
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      {/* Footer */}
+      <footer className="border-t border-white/10 py-8 text-center text-xs text-gray-500">
+        Feito para eternizar histórias de amor.
+      </footer>
     </div>
   );
 }
